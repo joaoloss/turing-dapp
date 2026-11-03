@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Turing Token</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Turing <span class="muted">(TUR)</span></h1>
+    <div id="account" class="account">
+      <button id="connectBtn">Conectar carteira</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="card" id="configCard">
+      <label for="contractAddr">Endereço do contrato</label>
+      <div class="row">
+        <input id="contractAddr" placeholder="0x..." spellcheck="false">
+        <button id="saveAddrBtn" class="secondary">Usar</button>
+      </div>
+    </section>
+
+    <div id="status" class="status hidden"></div>
+
+    <section class="card hidden" id="infoCard">
+      <div class="info">
+        <div><span class="muted">Usuário</span><strong id="whoami">—</strong></div>
+        <div><span class="muted">Perfil</span><strong id="role">—</strong></div>
+        <div><span class="muted">Saldo</span><strong id="balance">—</strong></div>
+        <div><span class="muted">Votação</span><strong id="votingState">—</strong></div>
+      </div>
+    </section>
+
+    <div class="grid">
+      <div class="col">
+        <section class="card hidden" id="voteCard">
+          <h2>Votar</h2>
+          <p id="voteWarning" class="warning hidden">
+            Esta carteira não tem codinome de aluno, então o contrato vai recusar o voto.
+            Para votar, troque no MetaMask para a conta de um aluno (ex.: conta #1 do Hardhat = nome1).
+          </p>
+          <form id="voteForm">
+            <label for="voteName">Aluno</label>
+            <select id="voteName" class="studentSelect" required></select>
+            <label for="voteAmount">Quantidade de Turings</label>
+            <select id="voteAmount" required>
+              <option value="1">1</option>
+              <option value="2">2</option>
+            </select>
+            <button type="submit">Votar</button>
+          </form>
+        </section>
+
+        <section class="card hidden" id="adminCard">
+          <h2>Superusuário</h2>
+          <form id="issueForm">
+            <label for="issueName">Aluno</label>
+            <select id="issueName" class="studentSelect" required></select>
+            <label for="issueAmount">Quantidade de Turings</label>
+            <input id="issueAmount" type="number" min="1" step="1" value="1" required>
+            <button type="submit">Emitir tokens (issueToken)</button>
+          </form>
+          <hr>
+          <div class="row">
+            <button id="votingOnBtn" class="ok">Abrir votação</button>
+            <button id="votingOffBtn" class="danger">Fechar votação</button>
+          </div>
+        </section>
+
+        <section class="card hidden" id="notRegisteredCard">
+          <p>Esta carteira não está registrada no contrato, então não pode votar nem administrar.
+            Troque no MetaMask para uma conta registrada (ex.: conta #1 do Hardhat = nome1).</p>
+        </section>
+      </div>
+
+      <section class="card hidden col" id="rankingCard">
+        <div class="row between">
+          <h2>Ranking <span class="live" title="Atualizado pelos eventos Transfer do contrato">● ao vivo</span></h2>
+          <button id="refreshBtn" class="secondary small">Atualizar</button>
+        </div>
+        <table>
+          <thead><tr><th>#</th><th>Aluno</th><th class="num">Turings</th></tr></thead>
+          <tbody id="rankingBody"></tbody>
+        </table>
+      </section>
+    </div>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
