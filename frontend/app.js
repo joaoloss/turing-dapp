@@ -38,11 +38,37 @@ function show(id, visible) {
   $(id).classList.toggle("hidden", !visible);
 }
 
+let statusTimer;
+
+// Toast no canto da tela; sucesso e erro somem sozinhos
 function setStatus(message, kind = "info") {
   const el = $("status");
+  clearTimeout(statusTimer);
   el.textContent = message;
+  el.className = "status hidden";
+  void el.offsetWidth; // reinicia a animação de entrada
   el.className = `status ${kind}`;
+  if (kind !== "info") {
+    statusTimer = setTimeout(() => {
+      el.classList.add("leaving");
+      statusTimer = setTimeout(() => el.classList.add("hidden"), 350);
+    }, kind === "error" ? 7000 : 4000);
+  }
 }
+
+function setBalance(value) {
+  const el = $("balance");
+  const text = `${value} TUR`;
+  if (el.textContent === text) return;
+  const changed = el.textContent !== "—";
+  el.textContent = text;
+  if (changed) {
+    el.classList.remove("bump");
+    void el.offsetWidth;
+    el.classList.add("bump");
+  }
+}
+
 
 function errorMessage(err) {
   if (err?.code === "ACTION_REJECTED") return "Transação cancelada na carteira.";
@@ -93,8 +119,10 @@ async function refresh({ reloadRanking = true } = {}) {
     const isRegistered = name !== "";
 
     $("whoami").textContent = name || short(account);
-    $("role").textContent = isSuper ? "Superusuário" : isRegistered ? "Aluno" : "Não registrado";
-    $("balance").textContent = `${await contract.balanceOf(account)} TUR`;
+    const roleLabel = isSuper ? "Superusuário" : isRegistered ? "Aluno" : "Não registrado";
+    $("role").textContent = roleLabel;
+    $("role").dataset.role = isSuper ? "super" : isRegistered ? "aluno" : "none";
+    setBalance(await contract.balanceOf(account));
 
     show("infoCard", true);
     // Superusuário sempre vê o voto (spec), mas o contrato só aceita votos de quem tem codinome
@@ -123,14 +151,42 @@ function drawRanking(highlight = []) {
   ranking.sort((a, b) => (b.balance === a.balance ? a.name.localeCompare(b.name, undefined, { numeric: true }) : b.balance > a.balance ? 1 : -1));
 
   const body = $("rankingBody");
+  const firstDraw = body.children.length === 0;
+  // FLIP: guarda a posição de cada linha antes de redesenhar
+  const before = new Map([...body.children].map((li) => [li.dataset.name, li.getBoundingClientRect().top]));
+  const max = ranking.reduce((m, r) => (r.balance > m ? r.balance : m), 0n);
+
   body.innerHTML = "";
   ranking.forEach((r, i) => {
-    const tr = document.createElement("tr");
-    if (account && r.addr.toLowerCase() === account.toLowerCase()) tr.classList.add("me");
-    if (highlight.includes(r.name)) tr.classList.add("flash");
-    tr.innerHTML = `<td>${i + 1}</td><td>${r.name}</td><td class="num">${r.balance}</td>`;
-    body.appendChild(tr);
+    const li = document.createElement("li");
+    const isMe = account && r.addr.toLowerCase() === account.toLowerCase();
+    li.className = "rank-row";
+    li.dataset.name = r.name;
+    if (i < 3 && r.balance > 0n) li.classList.add("top");
+    if (isMe) li.classList.add("me");
+    if (highlight.includes(r.name)) li.classList.add("flash");
+    const pct = max > 0n ? Number((r.balance * 100n) / max) : 0;
+    li.innerHTML = `
+      <span class="rank-pos">${i + 1}</span>
+      <span class="rank-main">
+        <span class="rank-name">${r.name}${isMe ? '<span class="you">você</span>' : ""}</span>
+        <span class="bar"><i style="--w:${firstDraw ? 0 : pct}%"></i></span>
+      </span>
+      <span class="rank-value">${r.balance}<small>TUR</small></span>`;
+    body.appendChild(li);
+    if (firstDraw) requestAnimationFrame(() => li.querySelector(".bar > i").style.setProperty("--w", `${pct}%`));
   });
+
+  for (const li of body.children) {
+    const prev = before.get(li.dataset.name);
+    if (prev === undefined) continue;
+    const dy = prev - li.getBoundingClientRect().top;
+    if (!dy) continue;
+    li.animate([{ transform: `translateY(${dy}px)` }, { transform: "none" }], {
+      duration: 400,
+      easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
+    });
+  }
   show("rankingCard", true);
 }
 
@@ -141,7 +197,7 @@ async function onTransfer(from, to) {
   if (touched.length) drawRanking(touched.map((r) => r.name));
 
   if (account && [from, to].some((a) => a.toLowerCase() === account.toLowerCase())) {
-    $("balance").textContent = `${await contract.balanceOf(account)} TUR`;
+    setBalance(await contract.balanceOf(account));
   }
 }
 
@@ -153,18 +209,21 @@ function listen(address) {
 
 async function send(button, label, txPromiseFactory) {
   button.disabled = true;
+  button.classList.add("loading");
   try {
     setStatus(`${label}: confirme na carteira…`);
     const tx = await txPromiseFactory();
     setStatus(`${label}: aguardando confirmação do bloco…`);
     await tx.wait();
     setStatus(`${label}: sucesso!`, "success");
-    // O ranking chega pelo evento Transfer; aqui só o resto (ex.: estado da votação)
-    await refresh({ reloadRanking: false });
+    // Recarrega o ranking aqui: o listener Transfer via MetaMask+Hardhat
+    // costuma não disparar; o evento segue útil para outras abas quando funciona.
+    await refresh({ reloadRanking: true });
   } catch (err) {
     setStatus(`${label}: ${errorMessage(err)}`, "error");
   } finally {
     button.disabled = false;
+    button.classList.remove("loading");
   }
 }
 
@@ -196,8 +255,8 @@ async function onAccountChange(accounts) {
   account = accounts[0] ? ethers.getAddress(accounts[0]) : undefined;
   signer = account ? await provider.getSigner() : undefined;
   $("account").innerHTML = account
-    ? `<span class="muted">Conectado:</span> <code>${short(account)}</code>`
-    : '<button id="connectBtn">Conectar carteira</button>';
+    ? `<span class="wallet-chip"><span class="wallet-dot" aria-hidden="true"></span><code title="${account}">${short(account)}</code></span>`
+    : '<button id="connectBtn" type="button">Conectar carteira</button>';
   if (!account) $("connectBtn").onclick = connect;
   $("status").classList.add("hidden");
   useContract($("contractAddr").value.trim());
@@ -213,12 +272,16 @@ function init() {
 
   $("connectBtn").onclick = connect;
   $("saveAddrBtn").onclick = () => useContract($("contractAddr").value.trim());
-  $("refreshBtn").onclick = () => refresh();
+  $("refreshBtn").onclick = (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    refresh().finally(() => (btn.disabled = false));
+  };
 
   $("voteForm").onsubmit = (e) => {
     e.preventDefault();
     const name = $("voteName").value;
-    const amount = BigInt($("voteAmount").value);
+    const amount = BigInt(document.querySelector('input[name="voteAmount"]:checked').value);
     send(e.submitter, `Voto em ${name}`, () => contract.vote(name, amount));
   };
 
