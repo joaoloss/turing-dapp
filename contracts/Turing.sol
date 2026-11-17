@@ -2,9 +2,7 @@
 pragma solidity ^0.8.28;
 
 
-
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 contract Turing is ERC20 {
     mapping(string => address) public users;
@@ -67,7 +65,7 @@ contract Turing is ERC20 {
 
     modifier assertUserCanVote(address _address) {
         string memory name = addressOf[_address];
-        if (Strings.equal(name, '')) {
+        if (bytes(name).length == 0) {
             revert NotAllowed('You are not allowed to vote');
         }
         _;
@@ -124,16 +122,12 @@ contract Turing is ERC20 {
         address callerAddress = msg.sender;
         string memory callerName = addressOf[callerAddress];
 
-        if (Strings.equal(callerName, '')) {
-            revert NotAllowed('You are not allowed to vote');
-        }
-
         if (!voting) {
             revert BadRequest('Voting is not on');
         }
 
         if (_vote <= 0 || _vote > 2) {
-            revert BadRequest('Invalid vote, must be between 0 and 2');
+            revert BadRequest('Invalid vote, must be between 1 or 2');
         }
 
         address votedAddress = users[_name];
