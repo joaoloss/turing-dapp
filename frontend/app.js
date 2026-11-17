@@ -74,18 +74,39 @@ function errorMessage(err) {
   if (err?.code === "ACTION_REJECTED") return "Transação cancelada na carteira.";
   if (err?.revert?.args?.[0]) return err.revert.args[0];
 
-  // Em transações (estimateGas) o ethers não decodifica os erros customizados;
-  // o retorno do revert vem cru em err.data (às vezes aninhado no erro do RPC)
-  const data = [err?.data, err?.info?.error?.data, err?.info?.error?.data?.data, err?.error?.data]
-    .find((d) => typeof d === "string" && d.startsWith("0x") && d.length >= 10);
-  if (data && contract) {
-    try {
-      const parsed = contract.interface.parseError(data);
-      if (parsed?.args?.[0]) return parsed.args[0];
-    } catch {}
+  // Em transações (estimateGas) o ethers não decodifica os erros customizados.
+  // Dependendo da carteira, o retorno do revert vem aninhado em níveis diferentes
+  // do erro (err.data, err.info.error.data, err.error.data.data...), e às vezes o
+  // ethers só mostra "could not coalesce error". Por isso varremos o erro inteiro.
+  const strings = [];
+  collectStrings(err, strings);
+
+  if (contract) {
+    for (const s of strings) {
+      if (!/^0x[0-9a-fA-F]{8,}$/.test(s)) continue;
+      try {
+        const parsed = contract.interface.parseError(s);
+        if (parsed?.args?.[0]) return parsed.args[0];
+      } catch {}
+    }
+  }
+
+  // Alguns nós/carteiras só devolvem texto: reverted with custom error 'BadRequest("...")'
+  for (const s of strings) {
+    const m = s.match(/custom error '\w+\("(.*?)"\)'/) || s.match(/reason string '(.*?)'/);
+    if (m) return m[1];
   }
 
   return err?.shortMessage || err?.reason || err?.message || String(err);
+}
+
+// Junta todas as strings de um objeto de erro (com limite de profundidade)
+function collectStrings(value, out, depth = 0) {
+  if (depth > 6 || value == null) return;
+  if (typeof value === "string") out.push(value);
+  else if (typeof value === "object") {
+    for (const key of Object.keys(value)) collectStrings(value[key], out, depth + 1);
+  }
 }
 
 function short(addr) {
@@ -115,6 +136,7 @@ async function refresh({ reloadRanking = true } = {}) {
     }
 
     const name = await contract.addressOf(account);
+    fillVoteOptions(name); // não dá para votar em si mesmo
     const isSuper = [owner, TEACHER_ADDRESS].some((a) => a.toLowerCase() === account.toLowerCase());
     const isRegistered = name !== "";
 
@@ -262,9 +284,19 @@ async function onAccountChange(accounts) {
   useContract($("contractAddr").value.trim());
 }
 
+// Lista de quem pode receber voto: todos os alunos, menos o próprio usuário
+function fillVoteOptions(exclude = "") {
+  const select = $("voteName");
+  const current = select.value;
+  select.innerHTML = STUDENTS.filter((n) => n !== exclude)
+    .map((n) => `<option value="${n}">${n}</option>`)
+    .join("");
+  if (current && current !== exclude) select.value = current;
+}
+
 function init() {
-  const options = STUDENTS.map((n) => `<option value="${n}">${n}</option>`).join("");
-  document.querySelectorAll(".studentSelect").forEach((s) => (s.innerHTML = options));
+  $("issueName").innerHTML = STUDENTS.map((n) => `<option value="${n}">${n}</option>`).join("");
+  fillVoteOptions();
 
   let saved;
   try { saved = localStorage.getItem("turingAddress"); } catch {}
